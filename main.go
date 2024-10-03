@@ -110,7 +110,6 @@ import (
 )
 
 func loadEnv() {
-	// Load .env file
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
@@ -125,11 +124,6 @@ func getOdoo() {
 	username := os.Getenv("ODOO_USERNAME")
 	password := os.Getenv("ODOO_PASSWORD")
 
-	// fmt.Println("URL:", url)
-	// fmt.Println("Database:", db)
-	// fmt.Println("Username:", username)
-	// fmt.Println("Password:", password)
-
 	loggin(url, db, username, password)
 }
 
@@ -139,17 +133,6 @@ func loggin(url string, db string, username string, password string) {
 	client, err := xmlrpc.NewClient(fmt.Sprintf("%s/xmlrpc/2/common", url), nil)
 	if err != nil {
 		log.Fatal("Error creating XML-RPC client for authentication:", err)
-	}
-
-	common := map[string]any{}
-	err = client.Call("version", nil, &common)
-	if err != nil {
-		log.Fatal("Error calling 'version' method:", err)
-	}
-
-	fmt.Println("Odoo version information:")
-	for key, value := range common {
-		fmt.Printf("%s: %v\n", key, value)
 	}
 
 	err = client.Call("authenticate", []any{
@@ -162,42 +145,55 @@ func loggin(url string, db string, username string, password string) {
 
 	fmt.Println("Logged in as user ID:", uid)
 
+	// Call functions to fetch various models
 	getSaleOrders(url, db, uid, password)
+	getCustomers(url, db, uid, password)
+	getProducts(url, db, uid, password)
+	getPurchaseOrders(url, db, uid, password)
 }
 
 func getSaleOrders(url string, db string, uid int64, password string) {
-	offset := 0
+	fetchAndExport(url, db, uid, password, "sale.order", []string{"name", "partner_id", "amount_total"}, "sale_orders.csv")
+}
 
+func getCustomers(url string, db string, uid int64, password string) {
+	fetchAndExport(url, db, uid, password, "res.partner", []string{"name", "email", "phone"}, "customers.csv")
+}
+
+func getProducts(url string, db string, uid int64, password string) {
+	fetchAndExport(url, db, uid, password, "product.product", []string{"name", "list_price", "qty_available"}, "products.csv")
+}
+
+func getPurchaseOrders(url string, db string, uid int64, password string) {
+	fetchAndExport(url, db, uid, password, "purchase.order", []string{"name", "partner_id", "amount_total"}, "purchase_orders.csv")
+}
+
+func fetchAndExport(url, db string, uid int64, password, model string, fields []string, fileName string) {
 	models, err := xmlrpc.NewClient(fmt.Sprintf("%s/xmlrpc/2/object", url), nil)
 	if err != nil {
 		log.Fatal("Error creating XML-RPC client for models:", err)
 	}
 
-	var saleOrders []map[string]interface{}
+	var records []map[string]interface{}
 	err = models.Call("execute_kw", []interface{}{
 		db, uid, password,
-		"sale.order", "search_read",
+		model, "search_read",
 		[][]interface{}{},
 		map[string]interface{}{
-			"fields": []string{"name", "partner_id", "amount_total"},
-			"limit": 3000,
-			"offset": offset,
+			"fields": fields,
+			"limit":  3000,
 		},
-	}, &saleOrders)
+	}, &records)
 
 	if err != nil {
-		log.Fatal("Error fetching sale orders:", err)
+		log.Fatal(fmt.Sprintf("Error fetching %s records:", model), err)
 	}
 
-	// for _, order := range saleOrders {
-	// 	fmt.Printf("Sale Order: %s, Customer: %v, Total: %v\n", order["name"], order["partner_id"], order["amount_total"])
-	// }
-
-	exportToCSV(saleOrders)
+	exportToCSV(records, fields, fileName)
 }
 
-func exportToCSV(saleOrders []map[string]interface{}) {
-	file, err := os.Create("sale_orders.csv")
+func exportToCSV(records []map[string]interface{}, fields []string, fileName string) {
+	file, err := os.Create(fileName)
 	if err != nil {
 		log.Fatal("Could not create CSV file:", err)
 	}
@@ -206,29 +202,32 @@ func exportToCSV(saleOrders []map[string]interface{}) {
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
-	header := []string{"Sale Order", "Customer", "Total"}
-	if err := writer.Write(header); err != nil {
+	if err := writer.Write(fields); err != nil {
 		log.Fatal("Error writing header to CSV:", err)
 	}
 
-	for _, order := range saleOrders {
-
-		partner := ""
-		if partnerID, ok := order["partner_id"].([]interface{}); ok && len(partnerID) >= 2 {
-			partner = fmt.Sprintf("%v", partnerID[1]) 
+	for _, record := range records {
+		row := []string{}
+		for _, field := range fields {
+			value := ""
+			if v, ok := record[field]; ok {
+				switch v := v.(type) {
+				case []interface{}:
+					if len(v) >= 2 {
+						value = fmt.Sprintf("%v", v[1])
+					}
+				default:
+					value = fmt.Sprintf("%v", v)
+				}
+			}
+			row = append(row, value)
 		}
-
-		record := []string{
-			fmt.Sprintf("%v", order["name"]),        
-			partner,                                  
-			fmt.Sprintf("%v", order["amount_total"]), 
-		}
-		if err := writer.Write(record); err != nil {
+		if err := writer.Write(row); err != nil {
 			log.Fatal("Error writing record to CSV:", err)
 		}
 	}
 
-	fmt.Println("Sale orders have been exported to sale_orders.csv")
+	fmt.Printf("%s have been exported to %s\n", fields, fileName)
 }
 
 func main() {
