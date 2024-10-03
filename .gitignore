@@ -1,0 +1,37 @@
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, build, and debugging files
+*.test
+*.out
+
+# Go workspace file and cache
+*.mod
+*.sum
+/vendor/
+
+# Ignore the .env file to keep sensitive information out of Git
+.env
+
+# Ignore Go build output directory (if you use this)
+bin/
+build/
+
+# VSCode settings and folders (if you're using VSCode)
+.vscode/
+
+# OS-specific files (macOS)
+.DS_Store
+
+# OS-specific files (Windows)
+Thumbs.db
+desktop.ini
+
+# Ignore compiled files
+*.o
+*.a
+*.pyc
+*.pyo
